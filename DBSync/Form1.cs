@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
+using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Text;
@@ -66,51 +67,80 @@ namespace DBSync
             }
 
         }
-
-
+        
         private void timer1_Tick(object sender, EventArgs e)
         {
             if(!IsSyncRunning) SyncData();
         }
-
-
+        
         private void button3_Click(object sender, EventArgs e)
         {
-            if (button2.Text == "Stop")
+            if (button3.Text == "Stop")
             {
                 button3.Text = "Thread Sync";
                 button1.Enabled = true;
                 button2.Enabled = true;
 
                 dbSync.StopProcessing = true;
+
+                timer2.Enabled = false;
             }
             else
             {
+                dbSync.LastProcessedVersion = long.Parse(txtLastSyncVersion.Text);
+
                 richTextBox1.Text = DateTime.Now.ToString() + " - Thread Start \r\n" + richTextBox1.Text;
 
-                //button3.Text = "Stop";
-                //button1.Enabled = false;
-                //button2.Enabled = false;
+                button3.Text = "Stop";
+                button1.Enabled = false;
+                button2.Enabled = false;
 
                 dbSync.StopProcessing = false;
 
-                LastProcessedVersion = long.Parse(txtLastSyncVersion.Text);
+                timer2.Enabled = true;
+            }
 
-                //LastProcessedVersion = dbSync.SyncData(LastProcessedVersion);
-                LastProcessedVersion = SyncData(LastProcessedVersion);
+        }
 
-                if (txtLastSyncVersion.Text == LastProcessedVersion.ToString())
+        private void timer2_Tick(object sender, EventArgs e)
+        {
+            //if (!IsSyncRunning)
+            //{
+            //    LastProcessedVersion = long.Parse(txtLastSyncVersion.Text);
+
+            //    LastProcessedVersion = SyncData(LastProcessedVersion);
+
+            //    if (txtLastSyncVersion.Text == LastProcessedVersion.ToString())
+            //    {
+            //        richTextBox1.Text = DateTime.Now.ToString() + " - No new data \r\n" + richTextBox1.Text;
+            //    }
+            //    else
+            //    {
+            //        txtLastSyncVersion.Text = LastProcessedVersion.ToString();
+            //        richTextBox1.Text = DateTime.Now.ToString() + " - Processed new data ... " + LastProcessedVersion + " \r\n" + richTextBox1.Text;
+            //    }
+            //}
+
+            if (!dbSync.IsSyncRunning)
+            {
+                Stopwatch watch = new Stopwatch();
+                watch.Start();
+
+                dbSync.SyncData();
+
+                watch.Stop();
+
+                if (txtLastSyncVersion.Text == dbSync.LastProcessedVersion.ToString())
                 {
-                    richTextBox1.Text = DateTime.Now.ToString() + " - No new data \r\n" + richTextBox1.Text;
+                    //richTextBox1.Text = DateTime.Now.ToString() + " - No new data \r\n" + richTextBox1.Text;
                 }
                 else
                 {
-                    txtLastSyncVersion.Text = LastProcessedVersion.ToString();
-                    richTextBox1.Text = DateTime.Now.ToString() + " - Processed new data ... " + LastProcessedVersion + " \r\n" + richTextBox1.Text;
+                    txtLastSyncVersion.Text = dbSync.LastProcessedVersion.ToString();
+                    
+                    richTextBox1.Text = DateTime.Now.ToString() + " - Processed new data ... " + dbSync.LastProcessedVersion + " | time: " + watch.Elapsed.TotalMilliseconds + " ms." + " \r\n" + richTextBox1.Text;
                 }
-
             }
-
         }
 
 
@@ -157,9 +187,11 @@ namespace DBSync
                     }
                 }
 
-                LastProcessedVersion = SyncTable(TableName, MinValidVersion, serverConn);
+                //LastProcessedVersion = SyncTable(TableName, MinValidVersion, serverConn);
+                LastProcessedVersion = SyncTable(TableName, LastProcessedVersion, serverConn);
 
                 txtLastSyncVersion.Text = LastProcessedVersion.ToString();
+
             }
             else
             {
@@ -170,71 +202,73 @@ namespace DBSync
         }
 
 
-        internal long SyncData(long currentVersion)
-        {
-            IsSyncRunning = true;
+        //internal long SyncData(long currentVersion)
+        //{
+        //    IsSyncRunning = true;
 
-            //long CurrentVersion = -1;
-            long MinValidVersion = -1;
+        //    //long CurrentVersion = -1;
+        //    long MinValidVersion = -1;
+        //    long tempLastProcessedVersion = -1;
 
-            // connect to server database
-            SqlConnection serverConn = new SqlConnection(ConfigurationManager.ConnectionStrings["SourceConnectionString"].ConnectionString);
-            serverConn.Open();
+        //    // connect to server database
+        //    SqlConnection serverConn = new SqlConnection(ConfigurationManager.ConnectionStrings["SourceConnectionString"].ConnectionString);
+        //    serverConn.Open();
 
-            SqlCommand cmd = new SqlCommand();
-            cmd.Connection = serverConn;
-            cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
+        //    SqlCommand cmd = new SqlCommand();
+        //    cmd.Connection = serverConn;
+        //    cmd.CommandText = "SELECT CHANGE_TRACKING_CURRENT_VERSION()";
 
-            using (SqlDataReader rdr = cmd.ExecuteReader())
-            {
-                while (rdr.Read())
-                {
-                    currentVersion = long.Parse(rdr[0].ToString());
-                }
-            }
+        //    using (SqlDataReader rdr = cmd.ExecuteReader())
+        //    {
+        //        while (rdr.Read())
+        //        {
+        //            currentVersion = long.Parse(rdr[0].ToString());
+        //        }
+        //    }
 
-            //richTextBox1.Text = DateTime.Now.ToString() + " - " + CurrentVersion.ToString() + "\r\n" + richTextBox1.Text;
+        //    //richTextBox1.Text = DateTime.Now.ToString() + " - " + CurrentVersion.ToString() + "\r\n" + richTextBox1.Text;
 
-            if (currentVersion > LastProcessedVersion)
-            {
-                List<string> tableNames = dbSync.RetrieveTablesToSync();
+        //    if (currentVersion > LastProcessedVersion)
+        //    {
+        //        List<string> tableNames = dbSync.RetrieveTablesToSync();
 
-                foreach (string TableName in tableNames)
-                {
-                    if (StopProcessing) break;
+        //        foreach (string TableName in tableNames)
+        //        {
+        //            if (StopProcessing) break;
 
-                    //string TableName = "MessageHistory";
+        //            //string TableName = "MessageHistory";
 
-                    cmd = new SqlCommand();
-                    cmd.Connection = serverConn;
-                    cmd.CommandText = "SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('" + TableName + "'))";
+        //            cmd = new SqlCommand();
+        //            cmd.Connection = serverConn;
+        //            cmd.CommandText = "SELECT CHANGE_TRACKING_MIN_VALID_VERSION(OBJECT_ID('" + TableName + "'))";
 
-                    using (SqlDataReader rdr = cmd.ExecuteReader())
-                    {
-                        while (rdr.Read())
-                        {
-                            MinValidVersion = long.Parse(rdr[0].ToString());
-                        }
-                    }
+        //            using (SqlDataReader rdr = cmd.ExecuteReader())
+        //            {
+        //                while (rdr.Read())
+        //                {
+        //                    MinValidVersion = long.Parse(rdr[0].ToString());
+        //                }
+        //            }
 
-                    long ProcessedVersion = SyncTable(TableName, MinValidVersion, serverConn);
-                    if (ProcessedVersion > LastProcessedVersion) LastProcessedVersion = ProcessedVersion;
-                }
+        //            //long ProcessedVersion = SyncTable(TableName, MinValidVersion, serverConn);
+        //            long ProcessedVersion = SyncTable(TableName, LastProcessedVersion, serverConn);
+        //            if (ProcessedVersion > tempLastProcessedVersion) tempLastProcessedVersion = ProcessedVersion;
+        //        }
 
-            }
-            else
-            {
-                //richTextBox1.Text = DateTime.Now.ToString() + " - No new data \r\n" + richTextBox1.Text;
-                LastProcessedVersion = currentVersion;
-            }
+        //    }
+        //    else
+        //    {
+        //        //richTextBox1.Text = DateTime.Now.ToString() + " - No new data \r\n" + richTextBox1.Text;
+        //        tempLastProcessedVersion = currentVersion;
+        //    }
 
-            IsSyncRunning = false;
+        //    IsSyncRunning = false;
 
-            if (StopProcessing)
-                LastProcessedVersion = currentVersion;
+        //    if (!StopProcessing)
+        //        LastProcessedVersion = tempLastProcessedVersion;
 
-            return LastProcessedVersion;
-        }
+        //    return LastProcessedVersion;
+        //}
 
 
         internal long SyncTable(string tableName, long minValidVersion, SqlConnection sqlConnection)
@@ -374,7 +408,7 @@ namespace DBSync
                                     command.Append(" [" + rdr.GetName(i) + "] = " + Value);
                                 }
 
-                                command.Append(" WHERE " + rdr.GetName(0) + " = " + rdr[0].ToString());
+                                command.Append(" WHERE [" + rdr.GetName(0) + "] = '" + rdr[0].ToString() + "'");
 
                                 cmd2 = new SqlCommand();
                                 cmd2.Connection = clientConn;
